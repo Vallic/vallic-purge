@@ -1,0 +1,10 @@
+{
+    "name": "drupal/vallic_purge",
+    "type": "drupal-module",
+    "description": "Clears the Vallic Cloud CDN when Drupal invalidates its caches.",
+    "homepage": "https://www.drupal.org/project/vallic_purge",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "drupal/purge": "^3.5"
+    }
+}

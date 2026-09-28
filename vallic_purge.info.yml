@@ -1,0 +1,8 @@
+name: 'Vallic Cloud CDN purger'
+type: module
+description: 'Clears the Vallic Cloud CDN when Drupal invalidates its caches. Needs no configuration on the platform.'
+core_version_requirement: ^10.3 || ^11
+package: 'Purge - reverse proxies & CDNs'
+
+dependencies:
+  - purge:purge
