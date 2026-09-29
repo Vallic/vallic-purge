@@ -22,6 +22,16 @@ final class Endpoint {
   public const string URL = 'VALLIC_CDN_PURGE_URL';
 
   /**
+   * The Unix socket the relay answers on, when there is one.
+   *
+   * The site runs in a container with a network of its own, so the machine's
+   * loopback is not reachable from it. The platform mounts the relay's socket
+   * into the container instead, and the request is sent through that; the
+   * URL then supplies only the path.
+   */
+  public const string SOCKET = 'VALLIC_CDN_PURGE_SOCKET';
+
+  /**
    * The token that says which environment is asking.
    */
   public const string TOKEN = 'VALLIC_CDN_PURGE_TOKEN';
@@ -35,6 +45,7 @@ final class Endpoint {
     private readonly string $url,
     private readonly string $token,
     private readonly bool $onPlatform,
+    private readonly string $socket = '',
   ) {}
 
   /**
@@ -45,6 +56,7 @@ final class Endpoint {
       trim((string) getenv(self::URL)),
       trim((string) getenv(self::TOKEN)),
       getenv(self::ENVIRONMENT) !== FALSE,
+      trim((string) getenv(self::SOCKET)),
     );
   }
 
@@ -67,6 +79,13 @@ final class Endpoint {
    */
   public function url(): string {
     return $this->url;
+  }
+
+  /**
+   * The Unix socket a purge is sent through, or '' for the URL's own host.
+   */
+  public function socket(): string {
+    return $this->socket;
   }
 
   /**

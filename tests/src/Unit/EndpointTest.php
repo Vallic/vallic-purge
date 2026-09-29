@@ -23,6 +23,7 @@ final class EndpointTest extends UnitTestCase {
     putenv(Endpoint::URL);
     putenv(Endpoint::TOKEN);
     putenv(Endpoint::ENVIRONMENT);
+    putenv(Endpoint::SOCKET);
     parent::tearDown();
   }
 
@@ -40,6 +41,18 @@ final class EndpointTest extends UnitTestCase {
     $this->assertTrue($endpoint->isOnPlatform());
     $this->assertSame('http://127.0.0.1:9339/purge', $endpoint->url());
     $this->assertSame('abc', $endpoint->token());
+    $this->assertSame('', $endpoint->socket());
+  }
+
+  /**
+   * The socket, where the platform gives one, is read beside the rest.
+   */
+  public function testTheSocketIsRead(): void {
+    putenv(Endpoint::URL . '=http://localhost/purge');
+    putenv(Endpoint::TOKEN . '=abc');
+    putenv(Endpoint::SOCKET . '=/run/vallic-cdn/purge.sock');
+
+    $this->assertSame('/run/vallic-cdn/purge.sock', Endpoint::fromEnvironment()->socket());
   }
 
   /**

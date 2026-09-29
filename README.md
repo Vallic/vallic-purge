@@ -5,12 +5,16 @@ caches — by cache tag, by URL, or everything — through the
 [Purge](https://www.drupal.org/project/purge) framework.
 
 There is nothing to configure. On Vallic Cloud every environment with the CDN
-on is given two variables, and this module reads them:
+on is given these variables, and this module reads them:
 
 ```
-VALLIC_CDN_PURGE_URL=http://127.0.0.1:9339/purge
+VALLIC_CDN_PURGE_SOCKET=/run/vallic-cdn/purge.sock
+VALLIC_CDN_PURGE_URL=http://localhost/purge
 VALLIC_CDN_PURGE_TOKEN=…
 ```
+
+The request goes through the socket, which the platform mounts into the
+site's container; the URL supplies only the path.
 
 The CDN's own API key never reaches the site. The platform keeps it, and the
 site asks the machine it runs on to clear its cache. The token only says which

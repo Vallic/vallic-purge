@@ -182,13 +182,19 @@ final class VallicPurger extends PurgerBase implements PurgerInterface {
       $body['values'] = array_values(array_unique($values));
     }
 
+    $options = [
+      RequestOptions::JSON => $body,
+      RequestOptions::HEADERS => ['Authorization' => 'Bearer ' . $endpoint->token()],
+      RequestOptions::CONNECT_TIMEOUT => 2,
+      RequestOptions::TIMEOUT => 30,
+    ];
+
+    if ($endpoint->socket() !== '') {
+      $options['curl'] = [CURLOPT_UNIX_SOCKET_PATH => $endpoint->socket()];
+    }
+
     try {
-      $this->httpClient->request('POST', $endpoint->url(), [
-        RequestOptions::JSON => $body,
-        RequestOptions::HEADERS => ['Authorization' => 'Bearer ' . $endpoint->token()],
-        RequestOptions::CONNECT_TIMEOUT => 2,
-        RequestOptions::TIMEOUT => 30,
-      ]);
+      $this->httpClient->request('POST', $endpoint->url(), $options);
     }
     catch (GuzzleException $e) {
       // Failed rather than dropped: purge offers it again on its next run,

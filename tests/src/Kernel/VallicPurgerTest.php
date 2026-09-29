@@ -134,6 +134,23 @@ final class VallicPurgerTest extends KernelTestBase {
   }
 
   /**
+   * Where the platform gives a socket, the request goes through it.
+   *
+   * The site's container has a network of its own, so the machine's loopback
+   * address in the URL would reach the container, not the relay.
+   */
+  public function testTheSocketCarriesTheRequest(): void {
+    $this->answers->append(new Response(200, [], '{"purged":1,"scope":"everything"}'), new Response(200));
+
+    $this->purger(new Endpoint('http://localhost/purge', 'a-token', TRUE, '/run/vallic-cdn/purge.sock'))
+      ->invalidateTags([$this->invalidation('tag', 'node:1')]);
+    $this->assertSame([CURLOPT_UNIX_SOCKET_PATH => '/run/vallic-cdn/purge.sock'], $this->sent[0]['options']['curl']);
+
+    $this->purger()->invalidateTags([$this->invalidation('tag', 'node:2')]);
+    $this->assertArrayNotHasKey('curl', $this->sent[1]['options']);
+  }
+
+  /**
    * With no CDN there is nothing to clear: done, and nothing sent.
    */
   public function testNoCdnSendsNothingAndCompletes(): void {
