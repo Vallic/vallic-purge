@@ -1,0 +1,30 @@
+services:
+  logger.channel.vallic_purge:
+    parent: logger.channel_base
+    arguments: ['vallic_purge']
+
+  vallic_purge.cache_tags:
+    class: Drupal\vallic_purge\CacheTags
+    # Optional, so the container still builds on a site updating from 1.x,
+    # which had no Cache Purifier; vallic_purge_update_11001() installs it.
+    arguments: ['@?cache_purifier.outbound']
+
+  vallic_purge.purger:
+    class: Drupal\vallic_purge\CdnPurger
+    arguments: ['@http_client', '@vallic_purge.cache_tags', '@queue', '@logger.channel.vallic_purge']
+
+  # Every cache tag invalidation passes through here, so it takes no
+  # dependencies until a request that invalidated something ends. Cache
+  # Purifier's rules name it as their target by this ID.
+  vallic_purge.cache_tags_invalidator:
+    class: Drupal\vallic_purge\PurgeCollector
+    arguments: [!service_closure '@vallic_purge.purger']
+    tags:
+      - { name: cache_tags_invalidator }
+      - { name: needs_destruction }
+
+  vallic_purge.cdn_tag_subscriber:
+    class: Drupal\vallic_purge\EventSubscriber\CdnTagSubscriber
+    arguments: ['@vallic_purge.cache_tags', '@vallic_purge.purger']
+    tags:
+      - { name: event_subscriber }

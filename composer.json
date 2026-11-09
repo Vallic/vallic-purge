@@ -4,7 +4,16 @@
     "description": "Clears the Vallic Cloud CDN when Drupal invalidates its caches.",
     "homepage": "https://www.drupal.org/project/vallic_purge",
     "license": "GPL-2.0-or-later",
+    "authors": [
+        {
+            "name": "Valentino Međimorec",
+            "homepage": "https://www.drupal.org/u/valic",
+            "role": "Maintainer"
+        }
+    ],
     "require": {
-        "drupal/purge": "^3.5"
+        "php": ">=8.3",
+        "drupal/cache_purifier": "^1.0",
+        "valicm/bunny-toolkit": "^1.0"
     }
 }

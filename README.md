@@ -1,8 +1,10 @@
 # Vallic Cloud CDN purger
 
 Clears the [Vallic Cloud](https://vallic.com) CDN when Drupal invalidates its
-caches — by cache tag, by URL, or everything — through the
-[Purge](https://www.drupal.org/project/purge) framework.
+caches, and tags every public response so the CDN knows which pages a change
+affects. Which tags go out is decided by
+[Cache Purifier](https://www.drupal.org/project/cache_purifier), the same as for
+the [bunny.net](https://www.drupal.org/project/bunny_net) module.
 
 There is nothing to configure. On Vallic Cloud every environment with the CDN
 on is given these variables, and this module reads them:
@@ -20,61 +22,104 @@ The CDN's own API key never reaches the site. The platform keeps it, and the
 site asks the machine it runs on to clear its cache. The token only says which
 environment is asking; it cannot clear anybody else's.
 
+## Requirements
+
+- Drupal 11.3 or later, or Drupal 12
+- PHP 8.3 or later
+
+Version 1.x, built on the Purge module, still runs on Drupal 10.3.
+
 ## Installing
 
 ```
-composer require drupal/vallic_purge drupal/purge
-drush en vallic_purge purge_queuer_coretags purge_processor_cron purge_processor_lateruntime
-drush p:purger-add vallic
+composer require drupal/vallic_purge
+drush en vallic_purge
 ```
 
-`p:purger-add` comes with Purge's Drush commands; the same is under
-*Configuration → Development → Performance → Purge* with `purge_ui` enabled.
-
-- **purge_queuer_coretags** queues an invalidation whenever Drupal invalidates
-  a cache tag, which is what makes a saved node clear the pages showing it.
-- **purge_processor_lateruntime** sends them at the end of the request that
-  caused them; **purge_processor_cron** catches anything left over.
+Then export your configuration, so every environment has the module.
 
 For the CDN to cache pages at all, Drupal has to say they may be cached:
-set *Browser and proxy cache maximum age* under *Configuration → Development →
-Performance*. A page that is `private` or `no-cache` — anything a signed-in
-visitor sees — is never cached, whatever this says.
+set *Browser and proxy cache maximum age* under *Configuration →
+Development → Performance*. A page that is `private` or `no-cache`, as
+anything a signed-in visitor sees is, is never cached.
+
+## What it does
+
+- **Tags responses.** Every public response carries a `CDN-Tag` header with
+  its cache tags. Each tag is written as five characters, so 170 fit in the
+  1024 bytes the CDN keeps. Cache Purifier puts list and entity tags first,
+  so on a page with more, the ones left out are the least useful.
+- **Purges by tag.** The tags a request invalidates are gathered and sent
+  once, after the response has gone to the browser. A purge for a tag clears
+  every page whose header carries it.
+- **Waits when it has to.** If the platform can't be reached, as while the
+  machine restarts, the purge waits in a queue and cron sends it. What the
+  platform refuses is logged, not retried.
+
+Off the platform, or on an environment with the CDN off, nothing is sent and
+responses carry no header. The same code runs unchanged on a laptop, in CI
+and on the platform. The status report says which of these it is, and how
+many purges wait for cron.
+
+## Choosing what reaches the CDN
+
+[Cache Purifier](https://www.drupal.org/project/cache_purifier) decides it, under
+*Configuration → Development → Cache Purifier*:
+
+- **Outbound tags** apply to the header and the purges alike. Its blocklist
+  keeps out `rendered` and `http_response` from the start: every page carries
+  them, so a purge for either would empty the CDN.
+- **Rules** drop invalidations by tag, role, path and origin. Name this
+  module's invalidator as the target, `vallic_purge.cache_tags_invalidator`:
+
+  ```yaml
+  visitors:
+    label: 'Visitors do not purge the CDN'
+    tags: ['*']
+    targets: [vallic_purge.cache_tags_invalidator]
+    roles: [anonymous, authenticated]
+  ```
 
 ## Clearing everything after a deploy
 
 Tag purging keeps pages fresh as content changes. A release that changes
 templates, stylesheets or scripts is different: every page looks different
-and no tag says so. To empty the CDN at the end of a deploy, add Purge's
-Drush processor once and export your configuration:
-
-```
-drush p:processor-add drush_purge_invalidate
-```
-
-then make it the last deploy step in `vallic.yaml`:
+and no tag says so. To empty the CDN at the end of a deploy, make it the
+last deploy step in `vallic.yaml`:
 
 ```yaml
 deploy:
   steps:
     - 'drush deploy'
-    - 'drush cache:rebuild-external -y'
+    - 'drush vallic-purge:all'
 ```
 
-Without the processor, `cache:rebuild-external` fails, and so does the step.
+If the platform can't be reached, the purge waits for cron and the step
+still succeeds: a release isn't rolled back because the CDN is cleared a few
+minutes late. Only a purge the platform refuses fails the step.
 
-## What it does
+## Drush
 
-- **Cache tags.** Every response carries a `CDN-Tag` header listing its tags,
-  and a tag invalidation clears everything carrying that tag. Tags are written
-  as short hashes: a busy page has hundreds of tags, enough to overflow the
-  buffer a web server keeps for headers. See `CacheTags`.
-- **URLs** are cleared as given. Only the hostnames the environment answers on
-  are accepted; anything else is skipped.
-- **Everything** empties the environment's CDN cache.
+| Command | What it does |
+|---|---|
+| `drush vallic-purge:all` | Empties this environment's CDN cache. |
+| `drush vallic-purge:tags node:12,node_list` | Clears the pages carrying these cache tags. |
+| `drush vallic-purge:urls https://www.example.com/news` | Clears these addresses. Only hostnames the environment answers on are accepted. |
 
-Off the platform, or on an environment with the CDN off, nothing breaks and
-nothing is sent: invalidations are marked done — there is nothing cached to
-clear — no `CDN-Tag` header is added, and the status report says which of the
-two it is. The same code runs unchanged on a laptop, in CI and on the
-platform.
+## Upgrading from 1.x
+
+2.x no longer uses the Purge module, and writes tags in a new format.
+
+1. On your own copy of the site, `composer require drupal/vallic_purge:^2`
+   and `drush updatedb`. The update installs Cache Purifier, and empties the
+   CDN once, since pages cached with the old tags can't be found by the new
+   ones.
+2. If nothing else on the site uses Purge, uninstall it:
+   `drush pmu purge purge_ui purge_queuer_coretags purge_processor_cron purge_processor_lateruntime purge_drush`,
+   leaving out any of those that aren't installed. A site with Varnish
+   purging through Purge keeps it.
+3. Export your configuration and commit it with `composer.lock`. Without
+   the export, the next deploy's configuration import would try to remove
+   Cache Purifier, which this module needs.
+4. Replace `drush cache:rebuild-external -y` in your deploy steps with
+   `drush vallic-purge:all`.

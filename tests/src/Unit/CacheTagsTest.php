@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\vallic_purge\Unit;
 
+use Drupal\cache_purifier\OutboundTags;
+use Drupal\Core\Config\ConfigFactoryInterface;
+use Drupal\Core\Config\ImmutableConfig;
 use Drupal\Tests\UnitTestCase;
 use Drupal\vallic_purge\CacheTags;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Group;
+use Valicm\BunnyToolkit\CacheTag\HashedTagList;
 
 /**
  * The header a response carries and the pattern a purge sends agree.
@@ -25,52 +29,88 @@ final class CacheTagsTest extends UnitTestCase {
    */
   public function testThePatternFindsTheTagInTheHeader(): void {
     $tags = ['node:1', 'node_list', 'config:system.site', 'user:7'];
-    $header = CacheTags::header($tags);
+    $cacheTags = $this->cacheTags();
+    $header = $cacheTags->header($tags)->value;
 
-    foreach ($tags as $tag) {
-      $pattern = '/^' . str_replace('\*', '.*', preg_quote(CacheTags::pattern($tag), '/')) . '$/';
-      $this->assertMatchesRegularExpression($pattern, $header, $tag);
+    foreach ($cacheTags->purgeValues($tags) as $pattern) {
+      $this->assertMatchesRegularExpression('/^' . str_replace('\*', '.*', preg_quote($pattern, '/')) . '$/', $header);
     }
-
-    $this->assertDoesNotMatchRegularExpression(
-      '/^' . str_replace('\*', '.*', preg_quote(CacheTags::pattern('node:2'), '/')) . '$/',
-      $header,
-      'A tag the page does not carry is not found in it.',
-    );
+    $this->assertCount(4, $cacheTags->purgeValues($tags));
   }
 
   /**
-   * A tag that is a prefix of another does not match it.
+   * Cache Purifier's blocklist keeps a tag out of both.
    *
-   * `node:1` against a page carrying only `node:12`: the spaces around every
-   * hash are what keep a purge from clearing pages it is not about.
+   * Every page carries `rendered`, so a purge for it would empty the CDN.
    */
-  public function testTagDoesNotMatchAnotherItIsPrefixOf(): void {
-    $header = CacheTags::header(['node:12']);
-    $pattern = '/^' . str_replace('\*', '.*', preg_quote(CacheTags::pattern('node:1'), '/')) . '$/';
+  public function testBlocklistedTagsAreNeitherWrittenNorPurged(): void {
+    $cacheTags = $this->cacheTags();
+    $format = new HashedTagList(CacheTags::HASH_LENGTH);
 
-    $this->assertDoesNotMatchRegularExpression($pattern, $header);
+    $this->assertSame([$format->purgeValue('node:1')], $cacheTags->purgeValues(['node:1', 'rendered', 'http_response']));
+    $this->assertSame([$format->token('node:1')], $this->tokens($cacheTags->header(['rendered', 'node:1'])->value));
   }
 
   /**
-   * The header stays short however long the tags are.
+   * A full header stops at the CDN's 1024 bytes, keeping lists and entities.
+   *
+   * The CDN would otherwise cut the header itself, at whatever tag the
+   * 1024th byte fell in, and a page would no longer be cleared by the tags
+   * past it.
    */
-  public function testTheHeaderIsShort(): void {
+  public function testFullHeaderKeepsTheUsefulTags(): void {
     $tags = [];
     for ($i = 0; $i < 300; $i++) {
-      $tags[] = 'config:block.block.a_rather_long_block_machine_name_' . $i;
+      $tags[] = 'config:block.block.b' . $i;
     }
+    $tags[] = 'node:1';
+    $tags[] = 'node_list';
 
-    $this->assertLessThan(3000, strlen(CacheTags::header($tags)));
-    $this->assertStringStartsWith(': ', CacheTags::header($tags));
-    $this->assertStringEndsWith(' :', CacheTags::header($tags));
+    $header = $this->cacheTags()->header($tags);
+
+    $this->assertLessThanOrEqual(1024, strlen($header->value));
+    $this->assertNotSame([], $header->dropped);
+    $this->assertContains('node_list', $header->included);
+    $this->assertContains('node:1', $header->included);
   }
 
   /**
-   * A tag listed twice is written once.
+   * Without Cache Purifier, as before the update installs it, nothing goes.
    */
-  public function testDuplicatesAreWrittenOnce(): void {
-    $this->assertSame(CacheTags::header(['node:1']), CacheTags::header(['node:1', 'node:1']));
+  public function testWithoutCachePurifierNothingIsWrittenOrPurged(): void {
+    $cacheTags = new CacheTags();
+
+    $this->assertTrue($cacheTags->header(['node:1'])->isEmpty());
+    $this->assertSame([], $cacheTags->purgeValues(['node:1']));
+  }
+
+  /**
+   * The tags with Cache Purifier's default outbound policy.
+   */
+  private function cacheTags(): CacheTags {
+    $config = $this->createStub(ImmutableConfig::class);
+    $config->method('get')->willReturnMap([
+      ['outbound', [
+        'blocklist' => ['http_response', 'rendered', 'library_info', 'CACHE_MISS_IF_UNCACHEABLE_HTTP_METHOD:*'],
+        'aliases' => [],
+        'buckets' => [],
+      ],
+      ],
+    ]);
+    $configFactory = $this->createStub(ConfigFactoryInterface::class);
+    $configFactory->method('get')->willReturn($config);
+
+    return new CacheTags(new OutboundTags($configFactory));
+  }
+
+  /**
+   * The tokens in a header, without its guards.
+   *
+   * @return list<string>
+   *   The tokens.
+   */
+  private function tokens(string $header): array {
+    return array_values(array_filter(explode(' ', $header), static fn (string $part): bool => $part !== ':' && $part !== ''));
   }
 
 }

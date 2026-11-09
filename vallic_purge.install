@@ -1,0 +1,22 @@
+<?php
+
+/**
+ * @file
+ * Update hooks for Vallic Purge.
+ */
+
+declare(strict_types=1);
+
+/**
+ * Moves to 2.x: Cache Purifier decides the tags, and Purge is not used.
+ *
+ * Tags are written in a new format, so the pages cached with the old one
+ * cannot be found by a purge any more: the CDN is emptied once, now if the
+ * platform answers and by cron otherwise.
+ */
+function vallic_purge_update_11001(): string {
+  \Drupal::service('module_installer')->install(['cache_purifier']);
+  \Drupal::service('vallic_purge.purger')->purgeAll();
+
+  return (string) t('Installed Cache Purifier and emptied the CDN once, as cache tags are written in a new format. Vallic Purge no longer uses the Purge module: if nothing else on the site does, uninstall purge and its submodules, then export your configuration.');
+}

@@ -4,50 +4,78 @@ declare(strict_types=1);
 
 namespace Drupal\vallic_purge;
 
+use Drupal\cache_purifier\OutboundTags;
+use Valicm\BunnyToolkit\CacheTag\CdnTagHeader;
+use Valicm\BunnyToolkit\CacheTag\HashedTagList;
+use Valicm\BunnyToolkit\CacheTag\TagFormat;
+
 /**
- * How cache tags are written on a response, and asked for in a purge.
+ * Which cache tags reach the CDN, and how they are written and purged.
  *
- * The two have to agree, which is why they live together.
+ * Cache Purifier's outbound policy decides the tags: its blocklist, aliases,
+ * buckets and order. The response header and the purge both go through it
+ * and through the same format, so a purged tag always matches the header it
+ * was written into.
  *
- * **One string, matched with wildcards.** The CDN keeps a response's
- * `CDN-Tag` header as a single value rather than a list, so a page carrying
- * `node:1 node_list` is not found by a purge for `node:1`. It is found by
- * `* node:1 *` — so the header is written with a space before and after every
- * tag, and a colon at each end so no layer in between trims the outer ones.
+ * The format is bunny-toolkit's, the one the bunny.net module uses. The CDN
+ * keeps a response's `CDN-Tag` header as one string of at most 1024 bytes,
+ * so each tag is hashed to five characters, the tokens go between guards
+ * (`: k3XqA 7m-2d :`) and a purge matches one with wildcards (`* k3XqA *`).
+ * A full header stops at 1024 bytes rather than being cut by the CDN, and
+ * Cache Purifier puts list and entity tags first, so what is left out is
+ * the least useful.
  *
- * **Short, not readable.** A Drupal page carries dozens of tags and a busy one
- * hundreds, which is enough to overflow the buffer a web server keeps for a
- * response's headers: the page then fails with a bad gateway rather than being
- * cached. Each tag is written as eight hexadecimal characters instead. Two
- * tags sharing a hash means a purge of one also clears pages carrying the
- * other, which costs a cache miss and nothing more.
+ * The platform passes purge values to the CDN unchanged, so this format is
+ * the site's choice alone.
+ *
+ * Until Cache Purifier is installed, as on a site updating from 1.x, nothing
+ * is written or purged.
  */
 final class CacheTags {
 
   /**
-   * The value of the `CDN-Tag` header for a response carrying these tags.
+   * Characters per hashed tag.
    *
-   * @param string[] $tags
+   * 170 tags fit, and a purge of one also clears a full page it is not on
+   * about once in six million.
+   */
+  public const int HASH_LENGTH = 5;
+
+  public function __construct(
+    private readonly ?OutboundTags $outbound = NULL,
+  ) {}
+
+  /**
+   * The format the header is written in and tags are purged with.
+   */
+  public function format(): TagFormat {
+    return new HashedTagList(self::HASH_LENGTH);
+  }
+
+  /**
+   * The CDN-Tag header for a response the CDN may cache.
+   *
+   * @param iterable<string> $tags
    *   Drupal's cache tags.
    */
-  public static function header(array $tags): string {
-    $hashes = array_values(array_unique(array_map(self::hash(...), $tags)));
-
-    return ': ' . implode(' ', $hashes) . ' :';
+  public function header(iterable $tags): CdnTagHeader {
+    return $this->format()->header($this->outbound?->forHeader($tags) ?? []);
   }
 
   /**
-   * What a purge asks for to clear every response carrying this tag.
+   * What a purge asks for to clear every response carrying these tags.
+   *
+   * @param iterable<string> $tags
+   *   Drupal's cache tags.
+   *
+   * @return list<string>
+   *   One wildcard pattern per tag that reaches the CDN, without duplicates.
    */
-  public static function pattern(string $tag): string {
-    return '* ' . self::hash($tag) . ' *';
-  }
+  public function purgeValues(iterable $tags): array {
+    $format = $this->format();
+    $values = array_map($format->purgeValue(...), $this->outbound?->forPurge($tags) ?? []);
 
-  /**
-   * One tag, as the header carries it.
-   */
-  public static function hash(string $tag): string {
-    return hash('crc32b', $tag);
+    return array_values(array_unique($values));
   }
 
 }
