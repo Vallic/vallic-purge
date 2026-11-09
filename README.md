@@ -123,3 +123,12 @@ minutes late. Only a purge the platform refuses fails the step.
    Cache Purifier, which this module needs.
 4. Replace `drush cache:rebuild-external -y` in your deploy steps with
    `drush vallic-purge:all`.
+
+## Maintainers
+
+Developed and maintained by [Vallic](https://vallic.com), a Drupal development
+company and the team behind Vallic Cloud, Drupal hosting.
+
+## License
+
+GPL-2.0-or-later. See [LICENSE.txt](LICENSE.txt).
