@@ -31,8 +31,12 @@ final class RequirementsHooks {
   /**
    * Implements hook_runtime_requirements().
    *
+   * Read afresh on every call: the environment and the queue change.
+   *
    * @return array<string, array<string, mixed>>
    *   The requirements.
+   *
+   * @phpstan-impure
    */
   #[Hook('runtime_requirements')]
   public function runtime(): array {

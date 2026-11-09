@@ -1,3 +1,5 @@
 coretags
 lateruntime
 pmu
+updatedb
+valicm
